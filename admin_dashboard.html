@@ -566,5 +566,24 @@
 
         });
     </script>
+    <script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.address-info-compact').forEach(function(div) {
+    // 주소 텍스트만 추출 (아이콘 제외)
+    const nodes = Array.from(div.childNodes);
+    const addressNode = nodes.find(node => node.nodeType === 3 && node.textContent.trim() !== "");
+    if (addressNode) {
+      const address = addressNode.textContent.trim();
+      const link = document.createElement('a');
+      link.href = 'https://map.naver.com/v5/search/' + encodeURIComponent(address);
+      link.target = '_blank';
+      link.style.color = 'inherit';
+      link.style.textDecoration = 'underline';
+      link.textContent = address;
+      div.replaceChild(link, addressNode);
+    }
+  });
+});
+</script>
 </body>
 </html> 
