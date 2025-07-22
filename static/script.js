@@ -223,6 +223,32 @@ document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('adminDashboard')) {
         initializeAdminDashboard();
     }
+
+    // 롤링배너(메인 Carousel) 페이지 인디케이터 동기화
+    const carousel = document.getElementById('mainCarousel');
+    const indicator = document.getElementById('carouselPageIndicator');
+    const firstSlideIndicator = document.getElementById('firstSlideIndicator');
+    const secondSlideIndicator = document.getElementById('secondSlideIndicator');
+    if (carousel && indicator) {
+        const items = carousel.querySelectorAll('.carousel-item');
+        const total = items.length;
+        function updateIndicator(idx) {
+            if (firstSlideIndicator) firstSlideIndicator.style.display = (idx === 0) ? '' : 'none';
+            if (secondSlideIndicator) secondSlideIndicator.style.display = (idx === 1) ? '' : 'none';
+        }
+        // 초기값: 항상 첫 번째 슬라이드로 이동
+        if (window.bootstrap && window.bootstrap.Carousel) {
+            const bsCarousel = window.bootstrap.Carousel.getOrCreateInstance(carousel);
+            bsCarousel.to(0); // 첫 슬라이드로 이동
+            bsCarousel.pause(); // 자동 슬라이드 정지
+        }
+        let activeIdx = Array.from(items).findIndex(item => item.classList.contains('active'));
+        updateIndicator(activeIdx === -1 ? 0 : activeIdx);
+        // 이벤트 리스너
+        carousel.addEventListener('slide.bs.carousel', function(e) {
+            updateIndicator(e.to);
+        });
+    }
 });
 
 // 메인 페이지 초기화
@@ -362,7 +388,7 @@ async function performSearch(location, industry) {
             // 복사할 텍스트 생성
             const copyText = `회사명: ${job.company || job.회사명 || '회사명 없음'}
 직무: ${job.title || job.직무 || '직무 없음'}
-일정: ${job.schedule || job['일정'] || '일정 없음'}
+채용일정: ${job.schedule || job['일정'] || '일정 없음'}
 업종: ${job.industry || job.업종 || '업종 없음'}
 연락처: ${job.contact || job.연락처 || '연락처 없음'}
 주소: ${job.address || job.주소 || '주소 없음'}`;
@@ -374,7 +400,7 @@ async function performSearch(location, industry) {
                             <h5 class="card-title company-name">${job.company || job.회사명 || '회사명 없음'}</h5>
                             <p class="card-text">
                                 <strong>직무:</strong> ${job.title || job.직무 || '직무 없음'}<br>
-                                <strong>일정:</strong> ${job.schedule || job['일정'] || '일정 없음'}<br>
+                                <strong>채용일정:</strong> ${job.schedule || job['일정'] || '일정 없음'}<br>
                                 <strong>업종:</strong> ${job.industry || job.업종 || '업종 없음'}<br>
                                 <strong>연락처:</strong> ${job.contact || job.연락처 || '연락처 없음'}
                             </p>
@@ -394,7 +420,28 @@ async function performSearch(location, industry) {
             `;
         });
         searchResults.innerHTML = `<div class="row">${resultsHTML}</div>`;
+        convertAddressDivsToNaverMapLinks(); // 주소 변환 함수 호출
     }
+}
+
+// 주소 div를 네이버 지도 링크로 변환하는 함수
+function convertAddressDivsToNaverMapLinks() {
+  document.querySelectorAll('.address-info-compact').forEach(function(div) {
+    // 이미 변환된 경우 중복 변환 방지
+    if (div.querySelector('a')) return;
+    const nodes = Array.from(div.childNodes);
+    const addressNode = nodes.find(node => node.nodeType === 3 && node.textContent.trim() !== "");
+    if (addressNode) {
+      const address = addressNode.textContent.trim();
+      const link = document.createElement('a');
+      link.href = 'https://map.naver.com/v5/search/' + encodeURIComponent(address);
+      link.target = '_blank';
+      link.style.color = 'inherit';
+      link.style.textDecoration = 'underline';
+      link.textContent = address;
+      div.replaceChild(link, addressNode);
+    }
+  });
 }
 
 // 관리자 로그인 페이지 초기화
