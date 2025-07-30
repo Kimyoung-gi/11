@@ -857,6 +857,7 @@ function showCSVUploadHistory() {
                 <ul class="list-unstyled">
                     <li><strong>파일 형식:</strong> CSV (UTF-8)</li>
                     <li><strong>필수 컬럼:</strong> 회사명, 직무, 일정, 주소, 업종, 연락처</li>
+                    <li><strong>선택 컬럼:</strong> 사이트명, 링크</li>
                     <li><strong>업로드 방식:</strong> 수동 파일 업로드</li>
                 </ul>
                 
@@ -1402,3 +1403,91 @@ async function saveJobsData(jobsData) {
         return false;
     }
 } 
+
+// 모든 데이터 삭제 함수
+async function clearAllData() {
+    if (!confirm('정말로 모든 데이터를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다!')) {
+        return;
+    }
+    
+    try {
+        console.log('모든 데이터 삭제 시작...');
+        
+        // 모든 데이터 소스 초기화
+        await rtdb.ref('jobs').remove();
+        await rtdb.ref('csv_jobs').remove();
+        await rtdb.ref('saramin_jobs').remove();
+        await rtdb.ref('medijob_jobs').remove();
+        await rtdb.ref('hairinjob_jobs').remove();
+        
+        // 로컬 스토리지도 초기화
+        localStorage.removeItem('lastUpdateTime');
+        localStorage.removeItem('lastUploadCount');
+        localStorage.removeItem('csvLastUpdateTime');
+        localStorage.removeItem('csvLastUploadCount');
+        localStorage.removeItem('saraminLastUpdateTime');
+        localStorage.removeItem('saraminLastUploadCount');
+        localStorage.removeItem('medijobLastUpdateTime');
+        localStorage.removeItem('medijobLastUploadCount');
+        localStorage.removeItem('hairinjobLastUpdateTime');
+        localStorage.removeItem('hairinjobLastUploadCount');
+        localStorage.removeItem('csvUploadHistory');
+        
+        console.log('모든 데이터 삭제 완료');
+        alert('모든 데이터가 성공적으로 삭제되었습니다.');
+        
+        // 페이지 새로고침하여 UI 업데이트
+        setTimeout(() => {
+            location.reload();
+        }, 1000);
+        
+    } catch (error) {
+        console.error('데이터 삭제 오류:', error);
+        alert('데이터 삭제 중 오류가 발생했습니다: ' + error.message);
+    }
+}
+
+// 데이터 상태 확인 함수
+async function checkDataStatus() {
+    try {
+        console.log('데이터 상태 확인 시작...');
+        
+        const status = {};
+        
+        // 각 채널별 데이터 수 확인
+        const channels = ['jobs', 'csv_jobs', 'saramin_jobs', 'medijob_jobs', 'hairinjob_jobs'];
+        
+        for (const channel of channels) {
+            try {
+                const snapshot = await rtdb.ref(channel).once('value');
+                const count = snapshot.numChildren();
+                status[channel] = count;
+                console.log(`${channel}: ${count}개`);
+            } catch (error) {
+                console.log(`${channel} 확인 오류:`, error);
+                status[channel] = 0;
+            }
+        }
+        
+        // 결과 표시
+        let message = '📊 현재 데이터 현황:\n\n';
+        message += `📁 전체 데이터 (jobs): ${status.jobs || 0}개\n`;
+        message += `📄 CSV 업로드 (csv_jobs): ${status.csv_jobs || 0}개\n`;
+        message += `🏢 사람인 (saramin_jobs): ${status.saramin_jobs || 0}개\n`;
+        message += `🏥 메디잡 (medijob_jobs): ${status.medijob_jobs || 0}개\n`;
+        message += `💇 헤어인잡 (hairinjob_jobs): ${status.hairinjob_jobs || 0}개\n\n`;
+        
+        const total = Object.values(status).reduce((sum, count) => sum + count, 0);
+        message += `📈 총 데이터 수: ${total}개`;
+        
+        alert(message);
+        
+    } catch (error) {
+        console.error('데이터 상태 확인 오류:', error);
+        alert('데이터 상태 확인 중 오류가 발생했습니다: ' + error.message);
+    }
+}
+
+// 전역 함수로 등록
+window.clearAllData = clearAllData;
+window.checkDataStatus = checkDataStatus; 
