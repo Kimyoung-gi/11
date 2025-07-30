@@ -159,21 +159,49 @@ async function saveJobsData(jobsData) {
 // 강제로 업로드된 데이터만 사용하는 함수 (디버깅용)
 async function getUploadedDataOnly() {
     try {
-        const snapshot = await rtdb.ref('jobs').once('value');
-        const jobsData = [];
-        snapshot.forEach(childSnapshot => {
-            const job = childSnapshot.val();
-            // 키 이름을 원래대로 복원
-            const restoredJob = {};
-            Object.keys(job).forEach(key => {
-                const originalKey = key
-                    .replace(/_/g, '/')
-                    .replace(/등록일_수정일/g, '등록일/수정일');
-                restoredJob[originalKey] = job[key];
+        // 모든 데이터 소스에서 데이터를 가져와서 합치기
+        const allJobsData = [];
+        
+        // 1. csv_jobs에서 데이터 가져오기
+        try {
+            const csvSnapshot = await rtdb.ref('csv_jobs').once('value');
+            csvSnapshot.forEach(childSnapshot => {
+                const job = childSnapshot.val();
+                // 키 이름을 원래대로 복원
+                const restoredJob = {};
+                Object.keys(job).forEach(key => {
+                    const originalKey = key
+                        .replace(/_/g, '/')
+                        .replace(/등록일_수정일/g, '등록일/수정일');
+                    restoredJob[originalKey] = job[key];
+                });
+                allJobsData.push(restoredJob);
             });
-            jobsData.push(restoredJob);
-        });
-        return jobsData;
+        } catch (error) {
+            console.log('csv_jobs 데이터 로드 중 오류 (무시됨):', error);
+        }
+        
+        // 2. 기존 jobs에서 데이터 가져오기 (하위 호환성)
+        try {
+            const jobsSnapshot = await rtdb.ref('jobs').once('value');
+            jobsSnapshot.forEach(childSnapshot => {
+                const job = childSnapshot.val();
+                // 키 이름을 원래대로 복원
+                const restoredJob = {};
+                Object.keys(job).forEach(key => {
+                    const originalKey = key
+                        .replace(/_/g, '/')
+                        .replace(/등록일_수정일/g, '등록일/수정일');
+                    restoredJob[originalKey] = job[key];
+                });
+                allJobsData.push(restoredJob);
+            });
+        } catch (error) {
+            console.log('jobs 데이터 로드 중 오류 (무시됨):', error);
+        }
+        
+        console.log('총 로드된 데이터 개수:', allJobsData.length);
+        return allJobsData;
     } catch (error) {
         console.error('Realtime Database 데이터 로드 오류:', error);
         return [];
@@ -183,9 +211,20 @@ async function getUploadedDataOnly() {
 // Firebase 데이터 초기화 함수 (디버깅용)
 async function clearUploadedData() {
     try {
+        // 모든 데이터 소스 초기화
         await rtdb.ref('jobs').remove();
-        console.log('Realtime Database 데이터가 초기화되었습니다.');
-        alert('업로드된 데이터가 초기화되었습니다.');
+        await rtdb.ref('csv_jobs').remove();
+        await rtdb.ref('saramin_jobs').remove();
+        await rtdb.ref('medijob_jobs').remove();
+        await rtdb.ref('hairinjob_jobs').remove();
+        
+        console.log('모든 Realtime Database 데이터가 초기화되었습니다.');
+        alert('업로드된 모든 데이터가 초기화되었습니다.');
+        
+        // 페이지 새로고침하여 UI 업데이트
+        setTimeout(() => {
+            location.reload();
+        }, 1000);
     } catch (error) {
         console.error('Realtime Database 데이터 초기화 오류:', error);
         alert('데이터 초기화 중 오류가 발생했습니다.');
@@ -386,12 +425,14 @@ async function performSearch(location, industry) {
             console.log(`결과 ${index + 1}:`, job);
             
             // 복사할 텍스트 생성
-            const copyText = `회사명: ${job.company || job.회사명 || '회사명 없음'}
+            const copyText = `사이트명: ${job['사이트명'] || '사이트명 없음'}
+회사명: ${job.company || job.회사명 || '회사명 없음'}
 직무: ${job.title || job.직무 || '직무 없음'}
 채용일정: ${job.schedule || job['일정'] || '일정 없음'}
+주소: ${job.address || job.주소 || '주소 없음'}
 업종: ${job.industry || job.업종 || '업종 없음'}
 연락처: ${job.contact || job.연락처 || '연락처 없음'}
-주소: ${job.address || job.주소 || '주소 없음'}`;
+링크: ${job['링크'] || '링크 없음'}`;
             
             resultsHTML += `
                 <div class="col-md-6 col-lg-4 mb-4">
@@ -399,14 +440,24 @@ async function performSearch(location, industry) {
                         <div class="card-body pb-5">
                             <h5 class="card-title company-name">${job.company || job.회사명 || '회사명 없음'}</h5>
                             <p class="card-text">
+                                <strong>사이트명:</strong> ${job['사이트명'] || '사이트명 없음'}<br>
                                 <strong>직무:</strong> ${job.title || job.직무 || '직무 없음'}<br>
                                 <strong>채용일정:</strong> ${job.schedule || job['일정'] || '일정 없음'}<br>
                                 <strong>업종:</strong> ${job.industry || job.업종 || '업종 없음'}<br>
-                                <strong>연락처:</strong> ${job.contact || job.연락처 || '연락처 없음'}
+                                <strong>연락처:</strong> ${(job.contact || job.연락처) ? 
+                                    `<a href="tel:${job.contact || job.연락처}" class="text-decoration-none">${job.contact || job.연락처}</a>` : 
+                                    '연락처 없음'}
                             </p>
                             <div class="address-info-compact">
                                 <i class="fas fa-map-marker-alt me-1"></i>${job.address || job.주소 || '주소 없음'}
                             </div>
+                            ${job['링크'] ? `
+                            <div class="mt-2">
+                                <a href="${job['링크']}" target="_blank" class="btn btn-sm btn-outline-info">
+                                    <i class="fas fa-external-link-alt me-1"></i>상세링크클릭
+                                </a>
+                            </div>
+                            ` : ''}
                         </div>
                         <div class="position-absolute bottom-0 end-0 p-2">
                             <button class="btn btn-sm btn-outline-primary copy-btn" 
@@ -517,8 +568,8 @@ async function initializeAdminDashboard() {
             // 파일 읽기 및 처리
             const jobsData = await parseCSVFile(file);
             
-            // Firebase에 저장
-            const success = await saveJobsData(jobsData);
+            // Firebase에 저장 (기존 데이터 삭제 후 새 데이터만 저장)
+            const success = await saveCSVUploadData(jobsData);
             
             if (success) {
                 alert(`CSV 파일이 성공적으로 업로드되었습니다!\n총 ${jobsData.length}개의 데이터가 저장되었습니다.`);
@@ -624,8 +675,8 @@ function parseCSVFile(file) {
                 
                 const headers = parseCSVLine(lines[0]);
                 
-                // 필수 컬럼 확인
-                const requiredColumns = ['회사명', '직무', '일정', '업종', '연락처', '주소'];
+                // 필수 컬럼 확인 (사이트명과 링크는 선택사항)
+                const requiredColumns = ['회사명', '직무', '일정', '주소', '업종', '연락처'];
                 const missingColumns = requiredColumns.filter(col => 
                     !headers.some(header => header === col)
                 );
@@ -649,6 +700,11 @@ function parseCSVFile(file) {
                             }
                             job[header] = value.trim();
                         });
+                        
+                        // 사이트명과 링크가 없는 경우 기본값 설정
+                        if (!job['사이트명']) job['사이트명'] = '';
+                        if (!job['링크']) job['링크'] = '';
+                        
                         jobsData.push(job);
                     }
                 }
@@ -671,18 +727,34 @@ function parseCSVFile(file) {
 // 업로드 히스토리 업데이트 (Realtime Database만 사용)
 async function updateUploadHistory() {
     try {
-        const snapshot = await rtdb.ref('jobs').once('value');
-        const count = snapshot.numChildren();
+        // 모든 데이터 소스에서 데이터 개수 확인
+        let totalCount = 0;
+        
+        // csv_jobs에서 데이터 개수 확인
+        try {
+            const csvSnapshot = await rtdb.ref('csv_jobs').once('value');
+            totalCount += csvSnapshot.numChildren();
+        } catch (error) {
+            console.log('csv_jobs 데이터 개수 확인 중 오류 (무시됨):', error);
+        }
+        
+        // 기존 jobs에서 데이터 개수 확인 (하위 호환성)
+        try {
+            const jobsSnapshot = await rtdb.ref('jobs').once('value');
+            totalCount += jobsSnapshot.numChildren();
+        } catch (error) {
+            console.log('jobs 데이터 개수 확인 중 오류 (무시됨):', error);
+        }
         
         const historyDiv = document.getElementById('uploadHistory');
         const downloadSection = document.getElementById('downloadSection');
         
-        if (count > 0) {
+        if (totalCount > 0) {
             // 마지막 업데이트 시간을 고정 (실시간 업데이트 방지)
             const lastUpdateTime = localStorage.getItem('lastUpdateTime') || new Date().toLocaleString();
-            const lastUploadCount = localStorage.getItem('lastUploadCount') || count.toString();
+            const lastUploadCount = localStorage.getItem('lastUploadCount') || totalCount.toString();
             historyDiv.innerHTML = `
-                <p><strong>저장된 데이터:</strong> ${count}개 (Realtime Database)</p>
+                <p><strong>저장된 데이터:</strong> ${totalCount}개 (Realtime Database)</p>
                 <p><strong>마지막 업데이트:</strong> ${lastUpdateTime}</p>
                 <p><strong>업로드 수량:</strong> ${lastUploadCount}개</p>
             `;
@@ -715,22 +787,8 @@ async function downloadCurrentData() {
     try {
         console.log('현재 데이터 다운로드 시작...');
         
-        // Firebase에서 데이터 로드
-        const snapshot = await rtdb.ref('jobs').once('value');
-        const jobsData = [];
-        
-        snapshot.forEach(childSnapshot => {
-            const job = childSnapshot.val();
-            // 키 이름을 원래대로 복원
-            const restoredJob = {};
-            Object.keys(job).forEach(key => {
-                const originalKey = key
-                    .replace(/_/g, '/')
-                    .replace(/등록일_수정일/g, '등록일/수정일');
-                restoredJob[originalKey] = job[key];
-            });
-            jobsData.push(restoredJob);
-        });
+        // Firebase에서 데이터 로드 (모든 소스에서)
+        const jobsData = await getUploadedDataOnly();
         
         if (jobsData.length === 0) {
             alert('다운로드할 데이터가 없습니다.');
@@ -741,7 +799,7 @@ async function downloadCurrentData() {
         const csvContent = generateCSV(jobsData);
         
         // 파일 다운로드
-        downloadCSV(csvContent, `SARAMIN_${getCurrentDate()}.csv`);
+        downloadCSV(csvContent, `ALL_DATA_${getCurrentDate()}.csv`);
         
         console.log(`${jobsData.length}개의 데이터를 다운로드했습니다.`);
         
@@ -755,20 +813,24 @@ async function downloadCurrentData() {
 function downloadSampleTemplate() {
     const templateData = [
         {
+            사이트명: "사람인",
             회사명: "샘플회사",
             직무: "매장직",
             "일정": "오픈 예정",
+            주소: "서울 강남구",
             업종: "서비스업",
             연락처: "02-1234-5678",
-            주소: "서울 강남구"
+            링크: "https://www.saramin.co.kr"
         },
         {
+            사이트명: "메디잡",
             회사명: "예시기업",
             직무: "영업직",
             "일정": "오픈 예정",
+            주소: "경기 성남시",
             업종: "제조업",
             연락처: "031-987-6543",
-            주소: "경기 성남시"
+            링크: "https://www.medijob.co.kr"
         }
     ];
     
@@ -1374,3 +1436,91 @@ async function saveCSVUploadData(jobsData) {
         return false;
     }
 } 
+
+// 모든 데이터 삭제 함수
+async function clearAllData() {
+    if (!confirm('정말로 모든 데이터를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다!')) {
+        return;
+    }
+    
+    try {
+        console.log('모든 데이터 삭제 시작...');
+        
+        // 모든 데이터 소스 초기화
+        await rtdb.ref('jobs').remove();
+        await rtdb.ref('csv_jobs').remove();
+        await rtdb.ref('saramin_jobs').remove();
+        await rtdb.ref('medijob_jobs').remove();
+        await rtdb.ref('hairinjob_jobs').remove();
+        
+        // 로컬 스토리지도 초기화
+        localStorage.removeItem('lastUpdateTime');
+        localStorage.removeItem('lastUploadCount');
+        localStorage.removeItem('csvLastUpdateTime');
+        localStorage.removeItem('csvLastUploadCount');
+        localStorage.removeItem('saraminLastUpdateTime');
+        localStorage.removeItem('saraminLastUploadCount');
+        localStorage.removeItem('medijobLastUpdateTime');
+        localStorage.removeItem('medijobLastUploadCount');
+        localStorage.removeItem('hairinjobLastUpdateTime');
+        localStorage.removeItem('hairinjobLastUploadCount');
+        localStorage.removeItem('csvUploadHistory');
+        
+        console.log('모든 데이터 삭제 완료');
+        alert('모든 데이터가 성공적으로 삭제되었습니다.');
+        
+        // 페이지 새로고침하여 UI 업데이트
+        setTimeout(() => {
+            location.reload();
+        }, 1000);
+        
+    } catch (error) {
+        console.error('데이터 삭제 오류:', error);
+        alert('데이터 삭제 중 오류가 발생했습니다: ' + error.message);
+    }
+}
+
+// 데이터 상태 확인 함수
+async function checkDataStatus() {
+    try {
+        console.log('데이터 상태 확인 시작...');
+        
+        const status = {};
+        
+        // 각 채널별 데이터 수 확인
+        const channels = ['jobs', 'csv_jobs', 'saramin_jobs', 'medijob_jobs', 'hairinjob_jobs'];
+        
+        for (const channel of channels) {
+            try {
+                const snapshot = await rtdb.ref(channel).once('value');
+                const count = snapshot.numChildren();
+                status[channel] = count;
+                console.log(`${channel}: ${count}개`);
+            } catch (error) {
+                console.log(`${channel} 확인 오류:`, error);
+                status[channel] = 0;
+            }
+        }
+        
+        // 결과 표시
+        let message = '📊 현재 데이터 현황:\n\n';
+        message += `📁 전체 데이터 (jobs): ${status.jobs || 0}개\n`;
+        message += `📄 CSV 업로드 (csv_jobs): ${status.csv_jobs || 0}개\n`;
+        message += `🏢 사람인 (saramin_jobs): ${status.saramin_jobs || 0}개\n`;
+        message += `🏥 메디잡 (medijob_jobs): ${status.medijob_jobs || 0}개\n`;
+        message += `💇 헤어인잡 (hairinjob_jobs): ${status.hairinjob_jobs || 0}개\n\n`;
+        
+        const total = Object.values(status).reduce((sum, count) => sum + count, 0);
+        message += `📈 총 데이터 수: ${total}개`;
+        
+        alert(message);
+        
+    } catch (error) {
+        console.error('데이터 상태 확인 오류:', error);
+        alert('데이터 상태 확인 중 오류가 발생했습니다: ' + error.message);
+    }
+}
+
+// 전역 함수로 등록
+window.clearAllData = clearAllData;
+window.checkDataStatus = checkDataStatus; 
