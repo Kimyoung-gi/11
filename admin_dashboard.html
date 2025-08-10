@@ -410,16 +410,8 @@
                         <i class="fas fa-chart-line me-2"></i>방문자 통계
                     </h3>
                     
-                    <div class="row mb-3">
-                        <div class="col-12">
-                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshVisitorStats()">
-                                <i class="fas fa-sync-alt me-2"></i>통계 새로고침
-                            </button>
-                        </div>
-                    </div>
-                    
                     <div class="row">
-                        <div class="col-md-3 mb-3">
+                        <div class="col-md-4 mb-3">
                             <div class="card bg-primary text-white">
                                 <div class="card-body text-center">
                                     <i class="fas fa-users fa-2x mb-2"></i>
@@ -428,7 +420,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-3 mb-3">
+                        <div class="col-md-4 mb-3">
                             <div class="card bg-success text-white">
                                 <div class="card-body text-center">
                                     <i class="fas fa-clock fa-2x mb-2"></i>
@@ -437,7 +429,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-3 mb-3">
+                        <div class="col-md-4 mb-3">
                             <div class="card bg-info text-white">
                                 <div class="card-body text-center">
                                     <i class="fas fa-calendar-day fa-2x mb-2"></i>
@@ -446,14 +438,16 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-3 mb-3">
-                            <div class="card bg-warning text-white">
-                                <div class="card-body text-center">
-                                    <i class="fas fa-chart-bar fa-2x mb-2"></i>
-                                    <h4 id="currentOnline">0</h4>
-                                    <p class="mb-0">현재 접속자</p>
-                                </div>
-                            </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <button type="button" class="btn btn-outline-primary btn-sm me-2" onclick="refreshVisitorStats()">
+                                <i class="fas fa-sync-alt me-2"></i>통계 새로고침
+                            </button>
+                            <button type="button" class="btn btn-outline-success btn-sm" onclick="downloadDailyVisitorData()">
+                                <i class="fas fa-download me-2"></i>일자별 방문자 추이 다운로드
+                            </button>
                         </div>
                     </div>
                     
