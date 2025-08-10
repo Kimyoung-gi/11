@@ -13,17 +13,29 @@ class VisitorStats {
     init() {
         this.loadVisitorStats();
         this.setupRealTimeUpdates();
-        this.initializeCharts();
         this.startTrackingCurrentVisitor();
+        
+        // 관리자 대시보드에서만 차트 초기화
+        if (window.location.pathname.includes('admin_dashboard.html')) {
+            this.initializeCharts();
+        }
     }
     
     // 방문자 통계 로드
     async loadVisitorStats() {
         try {
+            // 관리자 대시보드에서만 통계 표시
+            if (!window.location.pathname.includes('admin_dashboard.html')) {
+                return;
+            }
+            
             // 총 방문자수
             const totalSnapshot = await this.visitorsRef.get();
             const totalVisitors = totalSnapshot.size;
-            document.getElementById('totalVisitors').textContent = totalVisitors.toLocaleString();
+            const totalVisitorsElement = document.getElementById('totalVisitors');
+            if (totalVisitorsElement) {
+                totalVisitorsElement.textContent = totalVisitors.toLocaleString();
+            }
             
             // 오늘 방문자수
             const today = new Date();
@@ -32,16 +44,17 @@ class VisitorStats {
                 .where('visitTime', '>=', today)
                 .get();
             const todayVisitors = todaySnapshot.size;
-            document.getElementById('todayVisitors').textContent = todayVisitors.toLocaleString();
+            const todayVisitorsElement = document.getElementById('todayVisitors');
+            if (todayVisitorsElement) {
+                todayVisitorsElement.textContent = todayVisitors.toLocaleString();
+            }
             
             // 평균 체류시간 계산
             const avgStayTime = await this.calculateAverageStayTime();
-            document.getElementById('avgStayTime').textContent = `${Math.round(avgStayTime)}분`;
-            
-            // 현재 접속자수
-            const onlineSnapshot = await this.onlineRef.get();
-            const currentOnline = onlineSnapshot.size;
-            document.getElementById('currentOnline').textContent = currentOnline.toLocaleString();
+            const avgStayTimeElement = document.getElementById('avgStayTime');
+            if (avgStayTimeElement) {
+                avgStayTimeElement.textContent = `${Math.round(avgStayTime)}분`;
+            }
             
             // 최근 방문자 목록 업데이트
             this.updateRecentVisitorsList();
@@ -80,11 +93,10 @@ class VisitorStats {
     
     // 실시간 업데이트 설정
     setupRealTimeUpdates() {
-        // 온라인 사용자 실시간 업데이트
-        this.onlineRef.onSnapshot((snapshot) => {
-            const currentOnline = snapshot.size;
-            document.getElementById('currentOnline').textContent = currentOnline.toLocaleString();
-        });
+        // 관리자 대시보드에서만 실시간 업데이트 설정
+        if (!window.location.pathname.includes('admin_dashboard.html')) {
+            return;
+        }
         
         // 방문자 데이터 실시간 업데이트
         this.visitorsRef
@@ -99,12 +111,18 @@ class VisitorStats {
     // 최근 방문자 목록 업데이트
     async updateRecentVisitorsList() {
         try {
+            // 관리자 대시보드에서만 실행
+            if (!window.location.pathname.includes('admin_dashboard.html')) {
+                return;
+            }
+            
             const snapshot = await this.visitorsRef
                 .orderBy('visitTime', 'desc')
                 .limit(10)
                 .get();
             
             const tbody = document.getElementById('recentVisitorsTable');
+            if (!tbody) return;
             
             if (snapshot.empty) {
                 tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">방문자 데이터가 없습니다.</td></tr>';
@@ -146,6 +164,11 @@ class VisitorStats {
     
     // 차트 초기화
     initializeCharts() {
+        // 관리자 대시보드에서만 차트 초기화
+        if (!window.location.pathname.includes('admin_dashboard.html')) {
+            return;
+        }
+        
         this.createWeeklyChart();
         this.createStayTimeChart();
     }
@@ -153,7 +176,10 @@ class VisitorStats {
     // 주간 방문자 차트 생성
     async createWeeklyChart() {
         try {
-            const ctx = document.getElementById('weeklyChart').getContext('2d');
+            const canvas = document.getElementById('weeklyChart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
             const weeklyData = await this.getWeeklyVisitorData();
             
             this.charts.weekly = new Chart(ctx, {
@@ -190,7 +216,10 @@ class VisitorStats {
     // 체류시간 분포 차트 생성
     async createStayTimeChart() {
         try {
-            const ctx = document.getElementById('stayTimeChart').getContext('2d');
+            const canvas = document.getElementById('stayTimeChart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
             const stayTimeData = await this.getStayTimeDistribution();
             
             this.charts.stayTime = new Chart(ctx, {
@@ -247,6 +276,37 @@ class VisitorStats {
         return { labels, data };
     }
     
+    // 일자별 방문자 데이터 가져오기 (최대 3개월)
+    async getDailyVisitorData(months = 3) {
+        const data = [];
+        
+        for (let i = (months * 30) - 1; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const startOfDay = new Date(date);
+            startOfDay.setHours(0, 0, 0, 0);
+            const endOfDay = new Date(date);
+            endOfDay.setHours(23, 59, 59, 999);
+            
+            const snapshot = await this.visitorsRef
+                .where('visitTime', '>=', startOfDay)
+                .where('visitTime', '<=', endOfDay)
+                .get();
+            
+            data.push({
+                date: date.toISOString().split('T')[0], // YYYY-MM-DD 형식
+                visitors: snapshot.size,
+                formattedDate: date.toLocaleDateString('ko-KR', { 
+                    year: 'numeric', 
+                    month: '2-digit', 
+                    day: '2-digit' 
+                })
+            });
+        }
+        
+        return data;
+    }
+    
     // 체류시간 분포 데이터 가져오기
     async getStayTimeDistribution() {
         try {
@@ -292,7 +352,8 @@ class VisitorStats {
             visitTime: new Date(),
             ipAddress: this.getClientIP(),
             userAgent: navigator.userAgent,
-            page: window.location.pathname
+            page: window.location.pathname,
+            lastActivity: new Date()
         });
         
         // 페이지 떠날 때 체류시간 기록
@@ -306,8 +367,21 @@ class VisitorStats {
                 this.recordVisitorExit();
             } else {
                 this.visitStartTime = Date.now();
+                // 활동 시간 업데이트
+                this.onlineRef.doc(this.currentVisitorId).update({
+                    lastActivity: new Date()
+                });
             }
         });
+        
+        // 주기적으로 활동 시간 업데이트
+        setInterval(() => {
+            if (!document.hidden && this.currentVisitorId) {
+                this.onlineRef.doc(this.currentVisitorId).update({
+                    lastActivity: new Date()
+                });
+            }
+        }, 30000); // 30초마다 업데이트
     }
     
     // 방문자 ID 생성
@@ -348,6 +422,11 @@ class VisitorStats {
     
     // 차트 새로고침
     async refreshCharts() {
+        // 관리자 대시보드에서만 차트 새로고침
+        if (!window.location.pathname.includes('admin_dashboard.html')) {
+            return;
+        }
+        
         if (this.charts.weekly) {
             this.charts.weekly.destroy();
         }
@@ -356,6 +435,11 @@ class VisitorStats {
         }
         
         await this.initializeCharts();
+    }
+    
+    // 정리 함수
+    cleanup() {
+        this.recordVisitorExit();
     }
 }
 
@@ -366,8 +450,24 @@ document.addEventListener('DOMContentLoaded', function() {
     // 방문자 통계 초기화
     if (typeof firebase !== 'undefined' && firebase.firestore) {
         visitorStats = new VisitorStats();
+        
+        // 관리자 대시보드에서만 차트 초기화
+        if (window.location.pathname.includes('admin_dashboard.html')) {
+            console.log('관리자 대시보드에서 차트 초기화');
+            // 차트는 이미 initializeCharts()에서 생성됨
+        } else {
+            console.log('메인 페이지에서 방문자 추적만 활성화');
+            // 차트 관련 요소들이 없으므로 차트 생성은 건너뜀
+        }
     } else {
         console.error('Firebase가 로드되지 않았습니다.');
+    }
+});
+
+// 페이지 언로드 시 정리
+window.addEventListener('beforeunload', function() {
+    if (visitorStats) {
+        visitorStats.cleanup();
     }
 });
 
@@ -375,6 +475,64 @@ document.addEventListener('DOMContentLoaded', function() {
 window.refreshVisitorStats = function() {
     if (visitorStats) {
         visitorStats.loadVisitorStats();
-        visitorStats.refreshCharts();
+        if (window.location.pathname.includes('admin_dashboard.html')) {
+            visitorStats.refreshCharts();
+        }
+    }
+};
+
+// 일자별 방문자 추이 다운로드 함수
+window.downloadDailyVisitorData = async function() {
+    if (!visitorStats) {
+        alert('방문자 통계가 초기화되지 않았습니다.');
+        return;
+    }
+    
+    try {
+        // 로딩 표시
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>데이터 준비 중...';
+        button.disabled = true;
+        
+        // 일자별 데이터 가져오기 (최대 3개월)
+        const dailyData = await visitorStats.getDailyVisitorData(3);
+        
+        if (dailyData.length === 0) {
+            alert('다운로드할 방문자 데이터가 없습니다.');
+            return;
+        }
+        
+        // CSV 데이터 생성
+        const csvContent = [
+            ['날짜', '방문자수'],
+            ...dailyData.map(item => [item.formattedDate, item.visitors])
+        ].map(row => row.join(',')).join('\n');
+        
+        // 파일명 생성 (현재 날짜와 시간 포함)
+        const now = new Date();
+        const fileName = `VISITOR_DAILY_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}(${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}).csv`;
+        
+        // 파일 다운로드
+        const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', fileName);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        alert(`일자별 방문자 추이 데이터가 다운로드되었습니다.\n파일명: ${fileName}\n총 ${dailyData.length}일의 데이터가 포함되었습니다.`);
+        
+    } catch (error) {
+        console.error('일자별 방문자 데이터 다운로드 오류:', error);
+        alert('데이터 다운로드 중 오류가 발생했습니다: ' + error.message);
+    } finally {
+        // 버튼 상태 복원
+        const button = event.target;
+        button.innerHTML = '<i class="fas fa-download me-2"></i>일자별 방문자 추이 다운로드';
+        button.disabled = false;
     }
 };
