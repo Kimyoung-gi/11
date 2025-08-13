@@ -3,14 +3,17 @@ class VisitorStats {
     constructor() {
         this.visitorsRef = db.collection('visitors');
         this.onlineRef = db.collection('online_users');
+        this.uniqueVisitorsRef = db.collection('unique_visitors');
         this.charts = {};
         this.currentVisitorId = null;
         this.visitStartTime = null;
+        this.clientIP = null;
         
         this.init();
     }
     
-    init() {
+    async init() {
+        await this.getClientIP();
         this.loadVisitorStats();
         this.setupRealTimeUpdates();
         this.startTrackingCurrentVisitor();
@@ -18,6 +21,50 @@ class VisitorStats {
         // 관리자 대시보드에서만 차트 초기화
         if (window.location.pathname.includes('admin_dashboard.html')) {
             this.initializeCharts();
+        }
+    }
+    
+    // 실제 클라이언트 IP 주소 가져오기
+    async getClientIP() {
+        try {
+            // 여러 IP 확인 서비스 사용
+            const ipServices = [
+                'https://api.ipify.org?format=json',
+                'https://api.myip.com',
+                'https://ipapi.co/json/'
+            ];
+            
+            for (const service of ipServices) {
+                try {
+                    const response = await fetch(service, {
+                        method: 'GET',
+                        timeout: 5000
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.clientIP = data.ip || data.query || data.ipAddress;
+                        
+                        if (this.clientIP) {
+                            console.log('클라이언트 IP 확인됨:', this.clientIP);
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    console.log(`IP 서비스 ${service} 실패:`, error.message);
+                    continue;
+                }
+            }
+            
+            // 모든 서비스가 실패한 경우 기본값 설정
+            if (!this.clientIP) {
+                this.clientIP = '알 수 없음';
+                console.warn('클라이언트 IP를 가져올 수 없습니다.');
+            }
+            
+        } catch (error) {
+            console.error('IP 주소 가져오기 오류:', error);
+            this.clientIP = '알 수 없음';
         }
     }
     
@@ -29,15 +76,15 @@ class VisitorStats {
                 return;
             }
             
-            // 총 방문자수
-            const totalSnapshot = await this.visitorsRef.get();
-            const totalVisitors = totalSnapshot.size;
+            // 총 방문자수 (모든 방문 카운팅)
+            const totalVisitsSnapshot = await this.visitorsRef.get();
+            const totalVisitors = totalVisitsSnapshot.size;
             const totalVisitorsElement = document.getElementById('totalVisitors');
             if (totalVisitorsElement) {
                 totalVisitorsElement.textContent = totalVisitors.toLocaleString();
             }
             
-            // 오늘 방문자수
+            // 오늘 방문자수 (모든 방문 카운팅)
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             const todaySnapshot = await this.visitorsRef
@@ -59,8 +106,41 @@ class VisitorStats {
             // 최근 방문자 목록 업데이트
             this.updateRecentVisitorsList();
             
+            // 지역별 방문자 통계 업데이트
+            this.updateRegionalStats();
+            
         } catch (error) {
             console.error('방문자 통계 로드 오류:', error);
+        }
+    }
+    
+    // 지역별 방문자 통계 업데이트
+    async updateRegionalStats() {
+        try {
+            const snapshot = await this.visitorsRef.get();
+            const regionalStats = {};
+            
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.region) {
+                    regionalStats[data.region] = (regionalStats[data.region] || 0) + 1;
+                }
+            });
+            
+            // 지역별 통계를 화면에 표시 (관리자 대시보드에 해당 요소가 있다면)
+            const regionalStatsElement = document.getElementById('regionalStats');
+            if (regionalStatsElement) {
+                let html = '<h6>지역별 방문자</h6>';
+                Object.entries(regionalStats)
+                    .sort(([,a], [,b]) => b - a)
+                    .forEach(([region, count]) => {
+                        html += `<div class="mb-1"><small>${region}: ${count}명</small></div>`;
+                    });
+                regionalStatsElement.innerHTML = html;
+            }
+            
+        } catch (error) {
+            console.error('지역별 통계 업데이트 오류:', error);
         }
     }
     
@@ -125,7 +205,7 @@ class VisitorStats {
             if (!tbody) return;
             
             if (snapshot.empty) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">방문자 데이터가 없습니다.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">방문자 데이터가 없습니다.</td></tr>';
                 return;
             }
             
@@ -139,6 +219,7 @@ class VisitorStats {
                     <tr>
                         <td>${visitTime.toLocaleString('ko-KR')}</td>
                         <td>${data.ipAddress || '알 수 없음'}</td>
+                        <td>${data.region || '알 수 없음'}</td>
                         <td>${stayTime}분</td>
                         <td>${data.page || '메인 페이지'}</td>
                         <td>${data.userAgent ? this.getBrowserInfo(data.userAgent) : '알 수 없음'}</td>
@@ -171,6 +252,7 @@ class VisitorStats {
         
         this.createWeeklyChart();
         this.createStayTimeChart();
+        this.createRegionalChart();
     }
     
     // 주간 방문자 차트 생성
@@ -251,6 +333,46 @@ class VisitorStats {
         }
     }
     
+    // 지역별 방문자 차트 생성
+    async createRegionalChart() {
+        try {
+            const canvas = document.getElementById('regionalChart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const regionalData = await this.getRegionalData();
+            
+            this.charts.regional = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: regionalData.labels,
+                    datasets: [{
+                        label: '방문자수',
+                        data: regionalData.data,
+                        backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('지역별 차트 생성 오류:', error);
+        }
+    }
+    
     // 주간 방문자 데이터 가져오기
     async getWeeklyVisitorData() {
         const labels = [];
@@ -264,6 +386,7 @@ class VisitorStats {
             const endOfDay = new Date(date);
             endOfDay.setHours(23, 59, 59, 999);
             
+            // 방문자수 (모든 방문 카운팅)
             const snapshot = await this.visitorsRef
                 .where('visitTime', '>=', startOfDay)
                 .where('visitTime', '<=', endOfDay)
@@ -274,6 +397,34 @@ class VisitorStats {
         }
         
         return { labels, data };
+    }
+    
+    // 지역별 데이터 가져오기
+    async getRegionalData() {
+        try {
+            const snapshot = await this.visitorsRef.get();
+            const regionalStats = {};
+            
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.region) {
+                    regionalStats[data.region] = (regionalStats[data.region] || 0) + 1;
+                }
+            });
+            
+            // 상위 10개 지역만 표시
+            const sortedRegions = Object.entries(regionalStats)
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 10);
+            
+            return {
+                labels: sortedRegions.map(([region]) => region),
+                data: sortedRegions.map(([,count]) => count)
+            };
+        } catch (error) {
+            console.error('지역별 데이터 가져오기 오류:', error);
+            return { labels: [], data: [] };
+        }
     }
     
     // 일자별 방문자 데이터 가져오기 (최대 3개월)
@@ -288,6 +439,7 @@ class VisitorStats {
             const endOfDay = new Date(date);
             endOfDay.setHours(23, 59, 59, 999);
             
+            // 방문자수 (모든 방문 카운팅)
             const snapshot = await this.visitorsRef
                 .where('visitTime', '>=', startOfDay)
                 .where('visitTime', '<=', endOfDay)
@@ -343,14 +495,23 @@ class VisitorStats {
     }
     
     // 현재 방문자 추적 시작
-    startTrackingCurrentVisitor() {
+    async startTrackingCurrentVisitor() {
         this.visitStartTime = Date.now();
         this.currentVisitorId = this.generateVisitorId();
         
+        // IP 주소가 아직 로드되지 않았다면 대기
+        if (!this.clientIP) {
+            await this.getClientIP();
+        }
+        
+        // 지역 정보 가져오기
+        const region = await this.getRegionFromIP(this.clientIP);
+        
         // 온라인 사용자로 등록
-        this.onlineRef.doc(this.currentVisitorId).set({
+        await this.onlineRef.doc(this.currentVisitorId).set({
             visitTime: new Date(),
-            ipAddress: this.getClientIP(),
+            ipAddress: this.clientIP,
+            region: region,
             userAgent: navigator.userAgent,
             page: window.location.pathname,
             lastActivity: new Date()
@@ -384,15 +545,32 @@ class VisitorStats {
         }, 30000); // 30초마다 업데이트
     }
     
+    // IP 주소로 지역 정보 가져오기
+    async getRegionFromIP(ip) {
+        if (!ip || ip === '알 수 없음') return '알 수 없음';
+        
+        try {
+            const response = await fetch(`https://ipapi.co/${ip}/json/`);
+            if (response.ok) {
+                const data = await response.json();
+                if (data.country === 'KR') {
+                    return data.region || data.city || '한국';
+                } else {
+                    return data.country_name || '해외';
+                }
+            }
+        } catch (error) {
+            console.log('지역 정보 가져오기 실패:', error.message);
+        }
+        
+        return '알 수 없음';
+    }
+    
+
+    
     // 방문자 ID 생성
     generateVisitorId() {
         return 'visitor_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    }
-    
-    // 클라이언트 IP 주소 가져오기 (간단한 방법)
-    getClientIP() {
-        // 실제 IP는 서버에서 가져와야 하지만, 여기서는 간단히 표시
-        return '클라이언트 IP';
     }
     
     // 방문자 퇴장 기록
@@ -407,7 +585,8 @@ class VisitorStats {
                 visitTime: new Date(this.visitStartTime),
                 exitTime: new Date(),
                 stayTime: stayTime,
-                ipAddress: this.getClientIP(),
+                ipAddress: this.clientIP,
+                region: await this.getRegionFromIP(this.clientIP),
                 userAgent: navigator.userAgent,
                 page: window.location.pathname
             });
@@ -432,6 +611,9 @@ class VisitorStats {
         }
         if (this.charts.stayTime) {
             this.charts.stayTime.destroy();
+        }
+        if (this.charts.regional) {
+            this.charts.regional.destroy();
         }
         
         await this.initializeCharts();
@@ -524,7 +706,7 @@ window.downloadDailyVisitorData = async function() {
         link.click();
         document.body.removeChild(link);
         
-        alert(`일자별 방문자 추이 데이터가 다운로드되었습니다.\n파일명: ${fileName}\n총 ${dailyData.length}일의 데이터가 포함되었습니다.`);
+        alert(`일자별 방문자 추이 데이터가 다운로드되었습니다.\n파일명: ${fileName}\n총 ${dailyData.length}일의 데이터가 포함되었습니다.\n\n※ 모든 방문이 카운팅됩니다.`);
         
     } catch (error) {
         console.error('일자별 방문자 데이터 다운로드 오류:', error);
